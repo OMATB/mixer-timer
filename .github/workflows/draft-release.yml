@@ -1,11 +1,15 @@
-# Turns a pushed version tag (for example v1.1.3) into a DRAFT release.
-# The firmware and version file are taken from releases/<tag>/ in the repository.
-# Boards never see a draft. A person checks it on GitHub and clicks Publish.
-name: Draft release from tag
+# Makes a DRAFT release for each new folder releases/vX.Y.Z/ pushed to main.
+# The folder must hold firmware.bin and version.txt (and may hold notes.md).
+# Boards never see a draft. A person checks it on GitHub and clicks Publish,
+# which also creates the vX.Y.Z tag.
+name: Draft release from folder
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths:
+      - 'releases/**'
+      - '.github/workflows/draft-release.yml'
 
 permissions:
   contents: write
@@ -16,20 +20,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create draft release
+      - name: Create draft releases for new folders
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          DIR="releases/${TAG}"
-          test -f "$DIR/firmware.bin" || { echo "Missing $DIR/firmware.bin"; exit 1; }
-          test -f "$DIR/version.txt"  || { echo "Missing $DIR/version.txt";  exit 1; }
-          VER="v$(tr -d '[:space:]' < "$DIR/version.txt")"
-          if [ "$VER" != "$TAG" ]; then
-            echo "version.txt says $VER but the tag is $TAG. Not creating a release."
-            exit 1
-          fi
-          NOTES="Created automatically. Check it, then click Publish."
-          if [ -f "$DIR/notes.md" ]; then NOTES="$(cat "$DIR/notes.md")"; fi
-          gh release create "$TAG" "$DIR/firmware.bin" "$DIR/version.txt" \
-            --draft --verify-tag --title "$TAG" --notes "$NOTES"
+          shopt -s nullglob
+          for DIR in releases/v*/; do
+            DIR="${DIR%/}"
+            TAG="$(basename "$DIR")"
+            if [ ! -f "$DIR/firmware.bin" ] || [ ! -f "$DIR/version.txt" ]; then
+              echo "::error::$TAG is missing firmware.bin or version.txt"
+              exit 1
+            fi
+            VER="v$(tr -d '[:space:]' < "$DIR/version.txt")"
+            if [ "$VER" != "$TAG" ]; then
+              echo "::error::$DIR/version.txt says $VER but the folder is $TAG"
+              exit 1
+            fi
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "$TAG already has a release, leaving it alone"
+              continue
+            fi
+            NOTES="Created automatically. Check it, then click Publish."
+            if [ -f "$DIR/notes.md" ]; then NOTES="$(cat "$DIR/notes.md")"; fi
+            gh release create "$TAG" "$DIR/firmware.bin" "$DIR/version.txt" \
+              --draft --target "$GITHUB_SHA" --title "$TAG" --notes "$NOTES"
+            echo "Draft release $TAG created"
+          done
