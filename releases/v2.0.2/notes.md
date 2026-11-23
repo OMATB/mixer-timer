@@ -1,0 +1,1 @@
+Rpt switch on GPIO19: flip Off then On to run the last selected program again. Rpt On at power-up = safe start (nothing runs, an interrupted run comes back paused). On-page question boxes moved to the top of the screen for iPhone.
